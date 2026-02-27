@@ -50,7 +50,7 @@ async function sendMsg() {
       content: content
     }, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/json'
       }
     });
     
@@ -90,10 +90,10 @@ async function checkAndReplyComments() {
         // 回复评论的接口
         const replyResponse = await post('http://localhost:8000/post_live_app_msg', {
           content: replyContent,
-          contact: JSON.stringify(comment.contact)
+          contact: comment.contact
         }, {
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/json'
           }
         });
         
