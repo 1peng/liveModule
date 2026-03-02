@@ -11,17 +11,77 @@ def remove_punctuation(text):
     """移除标点符号"""
     return re.sub(r'[\p{P}\p{S}]', '', text)
 
-def randomize_sentence(text):
-    """随机打乱句子顺序"""
-    sentences = re.split(r'[。！？]', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    random.shuffle(sentences)
-    return '。'.join(sentences) + '。'
+def randomize_sentence(template):
+    """处理嵌套的 {} 和 | 语法，从多个选项中随机选择一个"""
+    def process_template(s):
+        result = ''
+        stack = []
+        current_part = ''
 
-def split_text_by_period(text):
-    """按句号分割文本"""
-    sentences = re.split(r'[。！？]', text)
-    return [s.strip() for s in sentences if s.strip()]
+        for char in s:
+            if char == '{':
+                if len(stack) == 0:
+                    result += current_part
+                    current_part = ''
+                stack.append('{')
+            elif char == '}':
+                if len(stack) == 1:
+                    options = [option.strip() for option in current_part.split('|')]
+                    result += random.choice(options)
+                    current_part = ''
+                stack.pop()
+            else:
+                current_part += char
+
+        result += current_part
+        return result
+
+    return process_template(template)
+
+def split_text_by_period(text, min_len=40, max_len=60):
+    """按句号、感叹号、问号、逗号分割文本，并根据长度进行智能分段"""
+    if not text.strip():
+        return []
+
+    # 按句号、感叹号、问号、逗号分割，保留分隔符
+    import re
+    raw_sentences = re.split(r'(?<=[。！？，])', text)
+    raw_sentences = [s for s in raw_sentences if s.strip()]
+
+    if not raw_sentences:
+        return [text]
+
+    result = []
+    current = ''
+
+    for sentence in raw_sentences:
+        candidate = current + sentence
+
+        # 如果加上当前句后仍小于最小长度，先累积
+        if len(candidate) < min_len:
+            current = candidate
+            continue
+
+        # 如果当前累积 + 当前句 超过最大长度，但 current 非空，则先输出 current
+        if current and len(candidate) > max_len:
+            # 尽量不让 current 太短
+            if len(current) >= min_len:
+                result.append(current)
+                current = sentence
+            else:
+                # current 太短，只能硬切（或合并到下一段）
+                result.append(candidate)
+                current = ''
+        else:
+            # 候选长度在合理范围内，直接提交
+            result.append(candidate)
+            current = ''
+
+    # 处理最后剩余的部分
+    if current:
+        result.append(current)
+
+    return result
 
 # 获取当前时间文本
 def get_current_time_text():
@@ -78,7 +138,8 @@ async def execute_cycle(session_id):
 
         # 3. 处理文本：打乱并按句号分割
         sentences = split_text_by_period(randomize_sentence(content))
-
+ 
+ 
         # 4. 遍历每句话发送
         for item in sentences:
             processed_item = item
@@ -87,7 +148,7 @@ async def execute_cycle(session_id):
             if 'CURRENT_TIME' in item:
                 time_text = get_current_time_text()
                 processed_item = processed_item.replace('CURRENT_TIME', time_text)
-
+            print(processed_item)
             # 发送文本到本地服务 (使用传入的 sessionId)
             try:
                 response = requests.post('http://localhost:8010/human', json={
@@ -120,6 +181,7 @@ async def execute_cycle(session_id):
 
 # 无限循环执行
 async def start_loop(session_id):
+    # await execute_cycle(session_id)
     while True:
         await execute_cycle(session_id)
         print('[INFO] 一轮执行完成，即将开始下一轮...')
