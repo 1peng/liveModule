@@ -172,8 +172,19 @@ async def execute_cycle(session_id):
                 res.raise_for_status()
                 
                 # 等待播放完成
-                if res.json().get('data', {}).get('data', 0) > 0:
-                    await asyncio.sleep(res.json()['data']['data'])
+                response_data = res.json()
+                remaining_time = 0
+                
+                # 处理不同的数据结构
+                if isinstance(response_data, dict):
+                    data = response_data.get('data')
+                    if isinstance(data, dict):
+                        remaining_time = data.get('data', 0)
+                    elif isinstance(data, (int, float)):
+                        remaining_time = data
+                
+                if remaining_time > 0:
+                    await asyncio.sleep(remaining_time)
             except Exception as e:
                 print(f'获取剩余播放时间失败: {e}')
     except Exception as err:
