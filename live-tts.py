@@ -83,6 +83,17 @@ def split_text_by_period(text, min_len=40, max_len=60):
 
     return result
 
+def split_by_period(text):
+    """按句号分割文本并去除首尾空白"""
+    parts = text.split('。')
+    result = []
+    for part in parts:
+        stripped_part = part.strip()
+        if stripped_part:  # 只处理非空部分
+            result.append(stripped_part + '。')
+    return result
+
+
 # 获取当前时间文本
 def get_current_time_text():
     """获取格式化的当前时间文本"""
@@ -91,8 +102,8 @@ def get_current_time_text():
     minute = now.minute
     second = now.second
     
-    # 如果秒数大于 50，则分钟进位
-    if second > 50:
+    # 如果秒数大于 40，则分钟进位
+    if second > 40:
         minute += 1
         
         # 处理分钟进位到小时的情况
@@ -137,7 +148,7 @@ async def execute_cycle(session_id):
             content = placeholder.sub(randomize_sentence(model_content), content)
 
         # 3. 处理文本：打乱并按句号分割
-        sentences = split_text_by_period(randomize_sentence(content))
+        sentences = split_by_period(randomize_sentence(content))
  
  
         # 4. 遍历每句话发送
@@ -162,7 +173,7 @@ async def execute_cycle(session_id):
                 print(f'发送文本失败: {e}')
 
             # 短暂延迟
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1)
 
             # 获取服务端剩余播放时间
             try:
@@ -184,7 +195,7 @@ async def execute_cycle(session_id):
                         remaining_time = data
                 
                 if remaining_time > 0:
-                    await asyncio.sleep(remaining_time - 3000 if remaining_time > 3000 else 0)
+                    await asyncio.sleep(remaining_time - 2)
             except Exception as e:
                 print(f'获取剩余播放时间失败: {e}')
     except Exception as err:
