@@ -184,7 +184,7 @@ async def execute_cycle(session_id):
                         remaining_time = data
                 
                 if remaining_time > 0:
-                    await asyncio.sleep(remaining_time)
+                    await asyncio.sleep(remaining_time - 3000 if remaining_time > 3000 else 0)
             except Exception as e:
                 print(f'获取剩余播放时间失败: {e}')
     except Exception as err:
