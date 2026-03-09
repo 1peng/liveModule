@@ -3,6 +3,7 @@ import random
 import json
 from urllib.request import Request, urlopen
 from urllib.error import URLError
+import arg_bot
 
 # 发言内容库
 msg_contents = [
@@ -133,7 +134,15 @@ def check_and_reply_comments():
                     reply_content = template.replace('{nickname}', comment.get('nickname', ''))
                 else:
                     # 普通回复
-                    reply_content = get_random_reply()
+                    # 普通回复 - 使用 RAG 智能回复
+                    user_question = comment.get('content', '')
+                    try:
+                        reply_content, _ = arg_bot.rag_chat_logic(user_question)
+                        if reply_content.startswith('❌') or reply_content.startswith('⚠️'):
+                            reply_content = get_random_reply()
+                    except Exception as e:
+                        print(f'[RAG回复] 调用失败: {e}')
+                        reply_content = get_random_reply()
                 
                 # 回复评论的接口
                 reply_response = post_request('http://localhost:8000/post_live_app_msg', {
@@ -177,6 +186,33 @@ def periodic_check():
 # 主函数
 if __name__ == '__main__':
     print('[系统] 自动交互脚本已启动，每3秒执行一次发言和评论回复')
+    
+    # 初始化 RAG 系统
+    print('[系统] 正在初始化 RAG 智能回复系统...')
+    try:
+        # 1. 加载本地向量模型
+        embed_model, embed_dim = arg_bot.load_local_embedding_model(arg_bot.LOCAL_EMBED_MODEL_PATH, arg_bot.DEVICE)
+        
+        # 封装向量化函数
+        def text2vec(text: str):
+            return embed_model.encode(text, convert_to_numpy=True, normalize_embeddings=True).astype('float32')
+        
+        arg_bot.GLOBAL_TEXT2VEC = text2vec
+        
+        # 2. 连接云端 LLM
+        arg_bot.GLOBAL_LLM_CLIENT = arg_bot.load_cloud_llm_client(
+            arg_bot.DASHSCOPE_API_KEY, 
+            arg_bot.DASHSCOPE_BASE_URL, 
+            arg_bot.LLM_MODEL_ONLINE
+        )
+        
+        # 3. 构建/加载索引
+        arg_bot.build_or_load_index(arg_bot.GLOBAL_TEXT2VEC, embed_dim)
+        
+        print('[系统] RAG 智能回复系统初始化完成')
+    except Exception as e:
+        print(f'[系统] RAG 初始化失败: {e}')
+        print('[系统] 将使用随机模板回复')
     
     # 初始执行一次回复检查
     check_and_reply_comments()

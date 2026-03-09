@@ -6,3 +6,4 @@ __pycache__/
 faiss_rag_db/
 checkpoints/
 knowledge/
+*.index
