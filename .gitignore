@@ -4,4 +4,5 @@
 msglist/
 __pycache__/
 faiss_rag_db/
-models/
+checkpoints/
+knowledge/
