@@ -1078,16 +1078,40 @@ if __name__ == '__main__':
         #logger.debug(response)
 
         retoken = getrcode()
-        #logger.debug(retoken)
+        
+        if not retoken:
+            logger.error("获取二维码token失败，请检查网络连接")
+            exit(1)
+        
         rehttp = f'https://channels.weixin.qq.com/mobile/confirm_login.html?token={retoken}'
+        logger.info(f'二维码链接: {rehttp}')
 
-        qr = qrcode.QRCode()
-        qr.border = 1
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
         qr.add_data(rehttp)
-        qr.make()
+        qr.make(fit=True)
+        
+        # 保存为图片文件（推荐使用）
+        try:
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            qr_img.save("qrcode.png")
+            logger.info('=' * 60)
+            logger.info('二维码已保存到 qrcode.png')
+            logger.info('强烈建议：请打开 qrcode.png 图片文件进行扫码')
+            logger.info('=' * 60)
+        except Exception as e:
+            logger.warning(f'保存二维码图片失败: {e}')
+        
+        # 在终端显示二维码（注意：终端显示可能变形，建议扫描图片）
+        logger.info('终端显示的二维码（可能变形，建议扫描上方图片）：')
         qr.print_ascii(out=None, tty=False, invert=False)
 
         logger.info('请使用微信扫码登录！')
+        logger.info('二维码有效期200秒，请尽快扫码')
 
         time.sleep(1)
 

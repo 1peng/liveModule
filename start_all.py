@@ -15,11 +15,11 @@ def start_webapi():
         stderr=subprocess.STDOUT
     )
 
-def start_live_tts():
+def start_live_tts(session_id):
     """启动 live-tts 服务"""
     print('[启动] 正在启动 live-tts 服务...')
     return subprocess.Popen(
-        [sys.executable, 'live-tts.py'],
+        [sys.executable, 'live-tts.py', '--sessionid', str(session_id)],
         cwd=os.path.dirname(os.path.abspath(__file__)),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
@@ -39,6 +39,20 @@ def main():
     print('=' * 60)
     print('启动所有服务')
     print('=' * 60)
+    
+    # 解析命令行参数
+    session_id = None
+    args = sys.argv[1:]
+    for i in range(len(args)):
+        if args[i] == '--sessionid' and i + 1 < len(args):
+            session_id = int(args[i + 1])
+            break
+    
+    if session_id:
+        print(f'[参数] 使用 Session ID: {session_id}')
+    else:
+        print('[提示] 未指定 Session ID，使用默认值')
+        session_id = 846307
     
     processes = []
     
@@ -97,7 +111,7 @@ def main():
         time.sleep(2)
         
         # 启动 live-tts
-        live_tts_process = start_live_tts()
+        live_tts_process = start_live_tts(session_id)
         processes.append(('live-tts', live_tts_process))
         time.sleep(2)
         

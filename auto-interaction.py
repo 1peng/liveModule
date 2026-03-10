@@ -1,9 +1,24 @@
 import time
 import random
 import json
+import signal
+import sys
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 import arg_bot
+
+# 全局退出标志
+running = True
+
+def signal_handler(signum, frame):
+    global running
+    print()
+    print('[系统] 收到停止信号，正在退出...')
+    running = False
+
+# 注册信号处理器
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 # 发言内容库
 msg_contents = [
@@ -163,25 +178,41 @@ def check_and_reply_comments():
 
 # 20秒执行一轮发表留言，每3秒发表一次
 def start_msg_cycle():
-    while True:
+    global running
+    while running:
         print('[系统] 开始新一轮发言')
         
         # 按顺序发表所有留言
         for i in range(len(msg_contents)):
+            if not running:
+                break
             send_msg()
             
             # 除了最后一条，每条留言后等待3秒
             if i < len(msg_contents) - 1:
-                time.sleep(5)
+                for _ in range(50):
+                    if not running:
+                        break
+                    time.sleep(0.1)
+        
+        if not running:
+            break
         
         print('[系统] 本轮发言结束，等待20秒后开始下一轮')
-        time.sleep(20)
+        for _ in range(200):
+            if not running:
+                break
+            time.sleep(0.1)
 
 # 定时检查并回复评论
 def periodic_check():
-    while True:
+    global running
+    while running:
         check_and_reply_comments()
-        time.sleep(3)
+        for _ in range(30):
+            if not running:
+                break
+            time.sleep(0.1)
 
 # 主函数
 if __name__ == '__main__':
@@ -222,12 +253,23 @@ if __name__ == '__main__':
     msg_thread = threading.Thread(target=start_msg_cycle)
     check_thread = threading.Thread(target=periodic_check)
     
-    msg_thread.daemon = True
-    check_thread.daemon = True
+    msg_thread.daemon = False
+    check_thread.daemon = False
     
     msg_thread.start()
     check_thread.start()
     
-    # 主线程保持运行
-    while True:
-        time.sleep(1)
+    # 主线程保持运行，直到收到停止信号
+    try:
+        while running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print()
+        print('[系统] 收到停止信号，正在退出...')
+        running = False
+    
+    # 等待线程结束
+    msg_thread.join(timeout=5)
+    check_thread.join(timeout=5)
+    
+    print('[系统] 自动交互脚本已停止')

@@ -3,8 +3,22 @@ import re
 import random
 import asyncio
 import sys
+import signal
 import requests
 from datetime import datetime
+
+# 全局退出标志
+running = True
+
+def signal_handler(signum, frame):
+    global running
+    print()
+    print('[系统] 收到停止信号，正在退出...')
+    running = False
+
+# 注册信号处理器
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 # 文本处理工具函数
 def remove_punctuation(text):
@@ -123,9 +137,10 @@ def get_current_time_text():
 
 # 主函数：执行一次完整的流程
 async def execute_cycle(session_id):
+    global running
     try:
         # 1. 读取主模板文件
-        file_path = os.path.join(os.path.dirname(__file__), 'data', '刀削面')
+        file_path = os.path.join(os.path.dirname(__file__), 'knowledge', '刀削面')
         index_path = os.path.join(file_path, 'index.txt')
         
         with open(index_path, 'r', encoding='utf-8') as f:
@@ -133,6 +148,8 @@ async def execute_cycle(session_id):
 
         # 2. 读取目录下的所有 .txt 文件，并替换占位符
         for item in os.listdir(file_path):
+            if not running:
+                break
             if item == 'index.txt' or not item.endswith('.txt'):
                 continue
             
@@ -150,9 +167,11 @@ async def execute_cycle(session_id):
         # 3. 处理文本：打乱并按句号分割
         sentences = split_by_period(randomize_sentence(content))
  
- 
+
         # 4. 遍历每句话发送
         for item in sentences:
+            if not running:
+                break
             processed_item = item
 
             # 替换时间占位符
@@ -195,7 +214,13 @@ async def execute_cycle(session_id):
                         remaining_time = data
                 
                 if remaining_time > 0:
-                    await asyncio.sleep(remaining_time - 2)
+                    # 分段等待，以便快速响应停止信号
+                    wait_time = remaining_time - 2
+                    if wait_time > 0:
+                        for _ in range(int(wait_time * 10)):
+                            if not running:
+                                break
+                            await asyncio.sleep(0.1)
             except Exception as e:
                 print(f'获取剩余播放时间失败: {e}')
     except Exception as err:
@@ -203,14 +228,22 @@ async def execute_cycle(session_id):
 
 # 无限循环执行
 async def start_loop(session_id):
+    global running
     # await execute_cycle(session_id)
-    while True:
+    while running:
         await execute_cycle(session_id)
+        if not running:
+            break
         print('[INFO] 一轮执行完成，即将开始下一轮...')
-        await asyncio.sleep(1)
+        # 分段等待，以便快速响应停止信号
+        for _ in range(10):
+            if not running:
+                break
+            await asyncio.sleep(0.1)
 
 # 主函数
 async def main():
+    global running
     # 解析命令行参数
     session_id = 846307  # 默认值
     
@@ -221,7 +254,14 @@ async def main():
             break
     
     print(f'[启动] 使用的 Session ID: {session_id}')
-    await start_loop(session_id)
+    try:
+        await start_loop(session_id)
+    except KeyboardInterrupt:
+        print()
+        print('[系统] 收到停止信号，正在退出...')
+        running = False
+    
+    print('[系统] live-tts 脚本已停止')
 
 if __name__ == '__main__':
     asyncio.run(main())
