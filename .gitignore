@@ -1,7 +1,7 @@
 *.log
 *.json
 *.npy
-msglist/
+tmp/
 __pycache__/
 faiss_rag_db/
 checkpoints/

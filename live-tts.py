@@ -6,6 +6,7 @@ import sys
 import signal
 import requests
 from datetime import datetime
+import product_state
 
 # 全局退出标志
 running = True
@@ -139,14 +140,23 @@ def get_current_time_text():
 async def execute_cycle(session_id):
     global running
     try:
-        # 1. 读取主模板文件
-        file_path = os.path.join(os.path.dirname(__file__), 'knowledge', '刀削面')
-        index_path = os.path.join(file_path, 'index.txt')
+        current_index, current_product = product_state.get_current_product()
+        if not current_product:
+            print('[错误] 未找到商品文件夹')
+            return
+        
+        print(f'[商品] 当前商品: {current_product} (索引: {current_index})')
+        
+        file_path = product_state.get_product_folder_path(current_product)
+        index_path = product_state.get_index_path(current_product)
+        
+        if not os.path.exists(index_path):
+            print(f'[错误] 索引文件不存在: {index_path}')
+            return
         
         with open(index_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # 2. 读取目录下的所有 .txt 文件，并替换占位符
         for item in os.listdir(file_path):
             if not running:
                 break
@@ -164,24 +174,19 @@ async def execute_cycle(session_id):
             placeholder = re.compile(f'\\{{{model_name}\\}}', re.IGNORECASE)
             content = placeholder.sub(randomize_sentence(model_content), content)
 
-        # 3. 处理文本：打乱并按句号分割
         sentences = split_by_period(randomize_sentence(content))
  
-
-        # 4. 遍历每句话发送
         for item in sentences:
             if not running:
                 break
             processed_item = item
 
-            # 替换时间占位符
             if 'CURRENT_TIME' in item:
                 time_text = get_current_time_text()
                 processed_item = processed_item.replace('CURRENT_TIME', time_text)
             print(processed_item)
-            # 发送文本到本地服务 (使用传入的 sessionId)
             try:
-                response = requests.post('http://localhost:8010/human', json={
+                response = requests.post('http://172.24.176.1:8010/human', json={
                     'text': processed_item,
                     'type': 'echo',
                     'interrupt': False,
@@ -191,21 +196,17 @@ async def execute_cycle(session_id):
             except Exception as e:
                 print(f'发送文本失败: {e}')
 
-            # 短暂延迟
             await asyncio.sleep(1)
 
-            # 获取服务端剩余播放时间
             try:
-                res = requests.post('http://localhost:8010/get_remaining_duration', json={
+                res = requests.post('http://172.24.176.1:8010/get_remaining_duration', json={
                     'sessionid': session_id
                 })
                 res.raise_for_status()
                 
-                # 等待播放完成
                 response_data = res.json()
                 remaining_time = 0
                 
-                # 处理不同的数据结构
                 if isinstance(response_data, dict):
                     data = response_data.get('data')
                     if isinstance(data, dict):
@@ -214,8 +215,7 @@ async def execute_cycle(session_id):
                         remaining_time = data
                 
                 if remaining_time > 0:
-                    # 分段等待，以便快速响应停止信号
-                    wait_time = remaining_time - 2
+                    wait_time = remaining_time - 8
                     if wait_time > 0:
                         for _ in range(int(wait_time * 10)):
                             if not running:
@@ -223,6 +223,11 @@ async def execute_cycle(session_id):
                             await asyncio.sleep(0.1)
             except Exception as e:
                 print(f'获取剩余播放时间失败: {e}')
+        
+        if running:
+            new_index, new_product = product_state.switch_to_next_product()
+            print(f'[商品] 完成朗读，切换到下一个商品: {new_product}')
+            
     except Exception as err:
         print(f'执行循环时出错: {err}')
 

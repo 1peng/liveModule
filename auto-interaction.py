@@ -3,9 +3,11 @@ import random
 import json
 import signal
 import sys
+import os
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 import arg_bot
+import product_state
 
 # 全局退出标志
 running = True
@@ -20,14 +22,28 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
-# 发言内容库
-msg_contents = [
-    '当季新货山楂干，无熏无硫，没有任何添加。',
-    '煮水，煲汤，炖肉，煮花茶，做山楂饼，山楂糕，山楂汁等吃法多种多样。',
-    '七天无理由，运费险给您保驾护航，放心拍，放心带。',
-    '今天福利价格10块9半斤，16块9一斤，先到先得。',
-    '去籽无核，品质保证。'
-]
+def load_msg_contents():
+    """从当前商品文件夹加载发言内容"""
+    _, current_product = product_state.get_current_product()
+    if not current_product:
+        return []
+    
+    msg_path = product_state.get_msg_path(current_product)
+    if not os.path.exists(msg_path):
+        print(f'[警告] 发言内容文件不存在: {msg_path}')
+        return []
+    
+    try:
+        with open(msg_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        return lines if lines else []
+    except Exception as e:
+        print(f'[错误] 读取发言内容失败: {e}')
+        return []
+
+msg_contents = load_msg_contents()
 
 # 回复模板
 reply_templates = [
@@ -61,7 +77,11 @@ like_replies = [
 # 顺序获取发言内容
 msg_index = 0
 def get_send_msg():
-    global msg_index
+    global msg_index, msg_contents
+    if not msg_contents:
+        msg_contents = load_msg_contents()
+        if not msg_contents:
+            return ''
     content = msg_contents[msg_index]
     msg_index = (msg_index + 1) % len(msg_contents)
     print(f'[发言] {content}')
@@ -178,17 +198,31 @@ def check_and_reply_comments():
 
 # 20秒执行一轮发表留言，每3秒发表一次
 def start_msg_cycle():
-    global running
+    global running, msg_contents, msg_index
+    last_product = None
     while running:
+        _, current_product = product_state.get_current_product()
+        if current_product != last_product:
+            print(f'[商品] 检测到商品切换: {last_product} -> {current_product}')
+            msg_contents = load_msg_contents()
+            msg_index = 0
+            last_product = current_product
+        
+        if not msg_contents:
+            print('[系统] 发言内容为空，等待10秒后重试...')
+            for _ in range(100):
+                if not running:
+                    break
+                time.sleep(0.1)
+            continue
+        
         print('[系统] 开始新一轮发言')
         
-        # 按顺序发表所有留言
         for i in range(len(msg_contents)):
             if not running:
                 break
             send_msg()
             
-            # 除了最后一条，每条留言后等待3秒
             if i < len(msg_contents) - 1:
                 for _ in range(50):
                     if not running:
@@ -207,7 +241,15 @@ def start_msg_cycle():
 # 定时检查并回复评论
 def periodic_check():
     global running
+    last_product = None
     while running:
+        _, current_product = product_state.get_current_product()
+        if current_product != last_product:
+            print(f'[RAG] 检测到商品切换: {last_product} -> {current_product}')
+            if arg_bot.GLOBAL_TEXT2VEC is not None:
+                arg_bot.check_and_switch_product_index(arg_bot.GLOBAL_TEXT2VEC, arg_bot.embed_dim)
+            last_product = current_product
+        
         check_and_reply_comments()
         for _ in range(30):
             if not running:
@@ -223,6 +265,7 @@ if __name__ == '__main__':
     try:
         # 1. 加载本地向量模型
         embed_model, embed_dim = arg_bot.load_local_embedding_model(arg_bot.LOCAL_EMBED_MODEL_PATH, arg_bot.DEVICE)
+        arg_bot.embed_dim = embed_dim
         
         # 封装向量化函数
         def text2vec(text: str):

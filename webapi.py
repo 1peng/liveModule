@@ -904,11 +904,11 @@ def downmsg(rejson):
     
     # 保存消息到文件
     if newmsg:
-        # 确保msglist目录存在
-        os.makedirs("msglist", exist_ok=True)
+        # 确保tmp目录存在
+        os.makedirs("tmp", exist_ok=True)
         
         # 生成文件路径
-        file_path = os.path.join("msglist", f"{generate_timestamp(13)}.json")
+        file_path = os.path.join("tmp", f"{generate_timestamp(13)}.json")
         
         # 保存数据
         with open(file_path, "w", encoding='utf-8') as file:
@@ -954,7 +954,7 @@ def getmsg():
 @app.get("/getmsg")
 def getmsgs():
     """获取直播消息"""
-    msglist_dir = "msglist"
+    msglist_dir = "tmp"
     
     # 检查目录是否存在
     if not os.path.exists(msglist_dir):
@@ -991,7 +991,7 @@ def getmsgs():
 @app.get("/clsmsg")
 def clear_messages():
     """清空所有消息"""
-    msglist_dir = "msglist"
+    msglist_dir = "tmp"
     
     # 检查目录是否存在
     if not os.path.exists(msglist_dir):

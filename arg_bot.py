@@ -7,6 +7,7 @@ import sys
 import time
 import logging
 from typing import Tuple, List, Dict, Any
+import product_state
 
 # 本地向量模型依赖
 from sentence_transformers import SentenceTransformer
@@ -27,15 +28,17 @@ logger = logging.getLogger(__name__)
 # ======================
 GLOBAL_INDEX = None
 GLOBAL_METADATA = []
-GLOBAL_TEXT2VEC = None  # 本地向量模型函数
-GLOBAL_LLM_CLIENT = None  # 云端 LLM 客户端
+GLOBAL_TEXT2VEC = None
+GLOBAL_LLM_CLIENT = None
+embed_dim = None
 
 # ======================
 # 配置
 # ======================
-VECTOR_DB_PATH = "faiss_rag_db.index"
-METADATA_PATH = "faiss_metadata.npy"
+VECTOR_DB_PATH = "tmp/faiss_rag_db.index"
+METADATA_PATH = "tmp/faiss_metadata.npy"
 KNOWLEDGE_FOLDER = "knowledge"
+CURRENT_PRODUCT_INDEX_KEY = "_current_product"
 
 # --- 本地向量模型配置 ---
 # 模型会自动从 HuggingFace 下载，首次运行需联网
@@ -209,6 +212,29 @@ def load_all_docs(folder: str = KNOWLEDGE_FOLDER) -> List[Dict[str, str]]:
     return docs
 
 
+def load_current_product_knowledge() -> List[Dict[str, str]]:
+    """加载当前商品的知识库文件"""
+    _, current_product = product_state.get_current_product()
+    if not current_product:
+        print("⚠️ 未找到当前商品")
+        return []
+    
+    knowledge_path = product_state.get_knowledge_path(current_product)
+    if not os.path.exists(knowledge_path):
+        print(f"⚠️ 知识库文件不存在: {knowledge_path}")
+        return []
+    
+    try:
+        txt = load_file(knowledge_path)
+        if txt and len(txt.strip()) > 10:
+            print(f"📄 已加载商品知识库: {current_product}/knowledge.txt")
+            return [{"file": f"{current_product}/knowledge.txt", "content": txt}]
+    except Exception as e:
+        print(f"❌ 加载知识库失败: {e}")
+    
+    return []
+
+
 def split_text(text: str, max_len: int = 350) -> List[str]:
     """将文本按句子切分成块，保持语义完整性"""
     import re
@@ -236,17 +262,33 @@ def split_text(text: str, max_len: int = 350) -> List[str]:
 # ======================
 # 核心逻辑：构建索引与向量化
 # ======================
-def build_or_load_index(text2vec_func, expected_dim: int):
-    """构建或加载 FAISS 索引"""
+def get_product_index_paths(product_name: str) -> Tuple[str, str]:
+    """获取商品索引文件路径"""
+    safe_name = product_name.replace('/', '_').replace('\\', '_')
+    index_path = f"tmp/faiss_index_{safe_name}.index"
+    metadata_path = f"tmp/faiss_metadata_{safe_name}.npy"
+    return index_path, metadata_path
+
+
+def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = False):
+    """构建或加载当前商品的 FAISS 索引"""
     global GLOBAL_INDEX, GLOBAL_METADATA
 
-    if os.path.exists(VECTOR_DB_PATH) and os.path.exists(METADATA_PATH):
-        print("🔍 加载已保存的向量库...")
-        try:
-            cpu_index = faiss.read_index(VECTOR_DB_PATH)
-            metadata = np.load(METADATA_PATH, allow_pickle=True).tolist()
+    _, current_product = product_state.get_current_product()
+    if not current_product:
+        print("⚠️ 未找到当前商品，创建空索引")
+        GLOBAL_INDEX = faiss.IndexFlatL2(expected_dim)
+        GLOBAL_METADATA = []
+        return
 
-            # 检查维度是否匹配
+    index_path, metadata_path = get_product_index_paths(current_product)
+    
+    if not force_reload and os.path.exists(index_path) and os.path.exists(metadata_path):
+        print(f"🔍 加载已保存的向量库 ({current_product})...")
+        try:
+            cpu_index = faiss.read_index(index_path)
+            metadata = np.load(metadata_path, allow_pickle=True).tolist()
+
             if cpu_index.d != expected_dim:
                 print(f"⚠️ 警告：现有索引维度 ({cpu_index.d}) 与当前模型维度 ({expected_dim}) 不匹配！")
                 print("   将重新构建索引...")
@@ -259,13 +301,13 @@ def build_or_load_index(text2vec_func, expected_dim: int):
         except Exception as e:
             print(f"   加载失败或维度不匹配：{e}")
 
-    print("🆕 正在构建新向量库 (本地向量化)...")
-    docs = load_all_docs()
+    print(f"🆕 正在构建新向量库 ({current_product})...")
+    docs = load_current_product_knowledge()
     vectors = []
     metadata = []
 
     if not docs:
-        print("⚠️ 知识库文件夹为空，创建空索引")
+        print("⚠️ 知识库为空，创建空索引")
         GLOBAL_INDEX = faiss.IndexFlatL2(expected_dim)
         GLOBAL_METADATA = []
         return
@@ -290,8 +332,8 @@ def build_or_load_index(text2vec_func, expected_dim: int):
     cpu_index = faiss.IndexFlatL2(vectors_np.shape[1])
     cpu_index.add(vectors_np)
 
-    faiss.write_index(cpu_index, VECTOR_DB_PATH)
-    np.save(METADATA_PATH, metadata)
+    faiss.write_index(cpu_index, index_path)
+    np.save(metadata_path, metadata)
 
     GLOBAL_INDEX = cpu_index
     GLOBAL_METADATA = metadata
@@ -299,10 +341,41 @@ def build_or_load_index(text2vec_func, expected_dim: int):
 
 
 def save_current_index():
+    global GLOBAL_INDEX, GLOBAL_METADATA
     if GLOBAL_INDEX is not None:
-        faiss.write_index(GLOBAL_INDEX, VECTOR_DB_PATH)
-        np.save(METADATA_PATH, GLOBAL_METADATA)
-        print("💾 索引已保存到磁盘")
+        _, current_product = product_state.get_current_product()
+        if current_product:
+            index_path, metadata_path = get_product_index_paths(current_product)
+            faiss.write_index(GLOBAL_INDEX, index_path)
+            np.save(metadata_path, GLOBAL_METADATA)
+            print(f"💾 索引已保存到磁盘 ({current_product})")
+
+
+def check_and_switch_product_index(text2vec_func, expected_dim: int) -> bool:
+    """检查商品是否切换，如果切换则重新加载索引"""
+    global GLOBAL_INDEX, GLOBAL_METADATA
+    
+    _, current_product = product_state.get_current_product()
+    if not current_product:
+        return False
+    
+    index_path, metadata_path = get_product_index_paths(current_product)
+    
+    if os.path.exists(index_path) and os.path.exists(metadata_path):
+        try:
+            cpu_index = faiss.read_index(index_path)
+            if cpu_index.d == expected_dim:
+                metadata = np.load(metadata_path, allow_pickle=True).tolist()
+                GLOBAL_INDEX = cpu_index
+                GLOBAL_METADATA = metadata
+                print(f"✅ 切换到商品索引: {current_product}")
+                return True
+        except Exception as e:
+            print(f"⚠️ 加载商品索引失败: {e}")
+    
+    print(f"🆕 为商品 {current_product} 构建新索引...")
+    build_or_load_index(text2vec_func, expected_dim, force_reload=True)
+    return True
 
 
 # ======================

@@ -81,7 +81,7 @@ python webapi.py
 LiveModules/
 ├── data/             # 数据目录，包含产品介绍等文本
 │   └── 刀削面/        # 示例产品数据
-├── msglist/          # 消息存储目录
+├── tmp/          # 消息存储目录
 ├── utils/            # 工具函数
 │   ├── request.py    # 请求相关工具
 │   └── text.py       # 文本处理工具
