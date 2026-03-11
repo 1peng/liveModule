@@ -51,8 +51,23 @@ def main():
     if session_id:
         print(f'[参数] 使用 Session ID: {session_id}')
     else:
-        print('[提示] 未指定 Session ID，使用默认值')
-        session_id = 846307
+        # 交互式输入 sessionid
+        while True:
+            try:
+                user_input = input('[输入] 请输入 Session ID: ').strip()
+                if user_input:
+                    session_id = int(user_input)
+                    print(f'[参数] 使用 Session ID: {session_id}')
+                    break
+                else:
+                    print('[提示] 未输入 Session ID，退出启动')
+                    sys.exit(0)
+            except ValueError:
+                print('[错误] 请输入有效的数字')
+            except KeyboardInterrupt:
+                print()
+                print('[提示] 已取消启动')
+                sys.exit(0)
     
     processes = []
     
