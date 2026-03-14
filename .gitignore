@@ -1,8 +1,10 @@
 *.log
 *.json
 *.npy
+*.png
 tmp/
 __pycache__/
 faiss_rag_db/
 checkpoints/
 *.index
+.rag/

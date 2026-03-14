@@ -70,7 +70,7 @@ def load_local_embedding_model(model_path: str, device: str):
 
     start = time.perf_counter()
     try:
-        # trust_remote_code=True 有时需要，视具体模型而定
+        # 尝试在指定设备上加载模型
         model = SentenceTransformer(model_path, device=device)
         end = time.perf_counter()
 
@@ -78,7 +78,30 @@ def load_local_embedding_model(model_path: str, device: str):
         print(f"✅ 本地向量模型加载完成 ({end - start:.2f}s)")
         print(f"   模型：{model_path}")
         print(f"   维度：{dim}")
+        print(f"   运行设备：{device}")
         return model, dim
+    except RuntimeError as e:
+        if "out of memory" in str(e) and device == "cuda":
+            # GPU内存不足，尝试使用CPU
+            print(f"⚠️ GPU内存不足：{e}")
+            print("🔄 尝试使用CPU加载模型...")
+            try:
+                model = SentenceTransformer(model_path, device="cpu")
+                end = time.perf_counter()
+                dim = model.get_sentence_embedding_dimension()
+                print(f"✅ 本地向量模型加载完成 ({end - start:.2f}s)")
+                print(f"   模型：{model_path}")
+                print(f"   维度：{dim}")
+                print(f"   运行设备：cpu (自动回退)")
+                return model, dim
+            except Exception as cpu_e:
+                print(f"❌ CPU加载模型失败：{cpu_e}")
+                print("💡 提示：请确保已安装 sentence-transformers 库 (pip install sentence-transformers)")
+                raise
+        else:
+            print(f"❌ 本地向量模型加载失败：{e}")
+            print("💡 提示：请确保已安装 sentence-transformers 库 (pip install sentence-transformers)")
+            raise
     except Exception as e:
         print(f"❌ 本地向量模型加载失败：{e}")
         print("💡 提示：请确保已安装 sentence-transformers 库 (pip install sentence-transformers)")
@@ -594,7 +617,20 @@ def main():
 
         # 封装向量化函数
         def text2vec(text: str) -> np.ndarray:
-            return embed_model.encode(text, convert_to_numpy=True, normalize_embeddings=True).astype('float32')
+            try:
+                return embed_model.encode(text, convert_to_numpy=True, normalize_embeddings=True).astype('float32')
+            except RuntimeError as e:
+                if "out of memory" in str(e) and DEVICE == "cuda":
+                    # GPU内存不足，尝试使用CPU编码
+                    print(f"⚠️ 编码时GPU内存不足：{e}")
+                    print("🔄 尝试使用CPU编码...")
+                    # 临时切换到CPU编码
+                    embed_model_cpu = SentenceTransformer(LOCAL_EMBED_MODEL_PATH, device="cpu")
+                    result = embed_model_cpu.encode(text, convert_to_numpy=True, normalize_embeddings=True).astype('float32')
+                    print("✅ CPU编码成功")
+                    return result
+                else:
+                    raise
 
         GLOBAL_TEXT2VEC = text2vec
 
