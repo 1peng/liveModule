@@ -11,8 +11,9 @@ def start_webapi():
     return subprocess.Popen(
         [sys.executable, 'webapi.py'],
         cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        shell=False
     )
 
 def start_live_tts(session_id):
@@ -21,8 +22,9 @@ def start_live_tts(session_id):
     return subprocess.Popen(
         [sys.executable, 'live-tts.py', '--sessionid', str(session_id)],
         cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        shell=False
     )
 
 def start_auto_interaction():
@@ -31,8 +33,9 @@ def start_auto_interaction():
     return subprocess.Popen(
         [sys.executable, 'auto-interaction.py'],
         cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        shell=False
     )
 
 def main():
@@ -78,51 +81,23 @@ def main():
         
         # 等待 webapi 登录和初始化
         print('[等待] 等待 webapi 登录和初始化...')
-        login_success = False
-        init_failed = False
-        wait_timeout = 300  # 5分钟超时
-        start_time = time.time()
+        print('[提示] 请在终端中查看二维码并扫码登录')
+        print('[提示] 登录成功后，其他服务将自动启动')
         
-        while time.time() - start_time < wait_timeout:
-            # 检查进程是否还在运行
+        # 等待 30 秒，让 webapi 服务有足够的时间启动、显示二维码并完成登录
+        for i in range(30):
             if webapi_process.poll() is not None:
                 print(f'[错误] webapi 服务已停止，退出码: {webapi_process.returncode}')
                 return
-            
-            # 读取输出
-            try:
-                output = webapi_process.stdout.readline()
-                if output:
-                    output_str = output.decode().strip()
-                    print(f'[webapi] {output_str}')
-                    
-                    # 检查初始化失败
-                    if '初始化失败，无法启动消息获取线程' in output_str:
-                        init_failed = True
-                        break
-                    
-                    # 检查登录成功的标志
-                    if '加载成功，开启消息获取线程' in output_str:
-                        login_success = True
-                        break
-            except:
-                pass
-            
-            time.sleep(0.1)
+            time.sleep(1)
+            print(f'[等待] 已等待 {i+1} 秒...')
         
-        if init_failed:
-            print('[错误] webapi 初始化失败，请检查直播间状态或权限')
-            print('[提示] 可能的原因：')
-            print('  1. 直播间不存在或已结束')
-            print('  2. 没有权限加入该直播间')
-            print('  3. 直播间状态异常')
+        # 检查 webapi 服务是否还在运行
+        if webapi_process.poll() is not None:
+            print(f'[错误] webapi 服务已停止，退出码: {webapi_process.returncode}')
             return
         
-        if not login_success:
-            print('[错误] webapi 登录或初始化超时，请检查网络或手动登录')
-            return
-        
-        print('[成功] webapi 登录和初始化成功，继续启动其他服务...')
+        print('[成功] webapi 服务已启动，继续启动其他服务...')
         time.sleep(2)
         
         # 启动 live-tts
@@ -141,24 +116,29 @@ def main():
         print()
         
         # 监控所有进程
+        print('[监控] 开始监控所有服务...')
+        print('[提示] 按 Ctrl+C 停止所有服务')
+        print()
+        
         while True:
             for name, process in processes:
                 if process.poll() is not None:
                     print(f'[错误] {name} 服务已停止，退出码: {process.returncode}')
+                    # 停止其他服务
+                    for n, p in processes:
+                        if p.poll() is None:
+                            print(f'[停止] 停止 {n} 服务...')
+                            try:
+                                p.terminate()
+                                p.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                print(f'[停止] {n} 服务未响应，强制终止...')
+                                p.kill()
+                                p.wait()
                     return
             
-            # 打印各服务的输出（跳过 webapi，因为已经在登录阶段打印过了）
-            for name, process in processes:
-                if name == 'webapi':
-                    continue
-                try:
-                    output = process.stdout.readline()
-                    if output:
-                        print(f'[{name}] {output.decode().strip()}')
-                except:
-                    pass
-            
-            time.sleep(0.1)
+            # 简单的延迟，避免 CPU 占用过高
+            time.sleep(1)
             
     except KeyboardInterrupt:
         print()

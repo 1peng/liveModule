@@ -186,7 +186,7 @@ async def execute_cycle(session_id):
                 processed_item = processed_item.replace('CURRENT_TIME', time_text)
             print(processed_item)
             try:
-                response = requests.post('http://172.24.176.1:8010/human', json={
+                response = requests.post('http://localhost:8010/human', json={
                     'text': processed_item,
                     'type': 'echo',
                     'interrupt': False,
@@ -199,7 +199,7 @@ async def execute_cycle(session_id):
             await asyncio.sleep(1)
 
             try:
-                res = requests.post('http://172.24.176.1:8010/get_remaining_duration', json={
+                res = requests.post('http://localhost:8010/get_remaining_duration', json={
                     'sessionid': session_id
                 })
                 res.raise_for_status()
@@ -215,7 +215,7 @@ async def execute_cycle(session_id):
                         remaining_time = data
                 
                 if remaining_time > 0:
-                    wait_time = remaining_time - 8
+                    wait_time = remaining_time - 20
                     if wait_time > 0:
                         for _ in range(int(wait_time * 10)):
                             if not running:
@@ -250,7 +250,7 @@ async def start_loop(session_id):
 async def main():
     global running
     # 解析命令行参数
-    session_id = 846307  # 默认值
+    session_id = 0  # 默认值
     
     args = sys.argv[1:]
     for i in range(len(args)):

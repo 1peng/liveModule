@@ -976,8 +976,13 @@ def getmsgs():
         file_path = os.path.join(msglist_dir, first_file)
         
         # 读取文件内容
-        with open(file_path, "r", encoding='utf-8') as file:
-            file_content = file.read()
+        try:
+            with open(file_path, "r", encoding='utf-8') as file:
+                file_content = file.read()
+        except UnicodeDecodeError:
+            # 尝试使用其他编码读取
+            with open(file_path, "r", encoding='utf-8', errors='replace') as file:
+                file_content = file.read()
         
         # 删除已读取的文件
         os.remove(file_path)
