@@ -84,6 +84,11 @@ def get_send_msg():
             return ''
     content = msg_contents[msg_index]
     msg_index = (msg_index + 1) % len(msg_contents)
+    
+    num_spaces = random.randint(1, 10)
+    insert_position = random.randint(0, len(content))
+    content = content[:insert_position] + ' ' * num_spaces + content[insert_position:]
+    
     print(f'[发言] {content}')
     return content
 
@@ -282,6 +287,9 @@ if __name__ == '__main__':
         
         # 3. 构建/加载索引
         arg_bot.build_or_load_index(arg_bot.GLOBAL_TEXT2VEC, embed_dim)
+        
+        # 4. 预加载所有商品索引到内存缓存
+        arg_bot.preload_all_product_indexes(arg_bot.GLOBAL_TEXT2VEC, embed_dim)
         
         print('[系统] RAG 智能回复系统初始化完成')
     except Exception as e:

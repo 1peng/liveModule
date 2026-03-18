@@ -32,6 +32,10 @@ GLOBAL_TEXT2VEC = None
 GLOBAL_LLM_CLIENT = None
 embed_dim = None
 
+# 商品索引缓存：{product_name: (index, metadata)}
+PRODUCT_INDEX_CACHE: Dict[str, Tuple[Any, List]] = {}
+CURRENT_CACHED_PRODUCT = None
+
 # ======================
 # 配置
 # ======================
@@ -295,7 +299,7 @@ def get_product_index_paths(product_name: str) -> Tuple[str, str]:
 
 def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = False):
     """构建或加载当前商品的 FAISS 索引"""
-    global GLOBAL_INDEX, GLOBAL_METADATA
+    global GLOBAL_INDEX, GLOBAL_METADATA, PRODUCT_INDEX_CACHE, CURRENT_CACHED_PRODUCT
 
     _, current_product = product_state.get_current_product()
     if not current_product:
@@ -303,6 +307,16 @@ def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = F
         GLOBAL_INDEX = faiss.IndexFlatL2(expected_dim)
         GLOBAL_METADATA = []
         return
+
+    # 检查内存缓存
+    if not force_reload and current_product in PRODUCT_INDEX_CACHE:
+        cached_index, cached_metadata = PRODUCT_INDEX_CACHE[current_product]
+        if cached_index.d == expected_dim:
+            GLOBAL_INDEX = cached_index
+            GLOBAL_METADATA = cached_metadata
+            CURRENT_CACHED_PRODUCT = current_product
+            print(f"✅ 从缓存切换到商品索引: {current_product}")
+            return
 
     index_path, metadata_path = get_product_index_paths(current_product)
     
@@ -319,6 +333,8 @@ def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = F
 
             GLOBAL_INDEX = cpu_index
             GLOBAL_METADATA = metadata
+            PRODUCT_INDEX_CACHE[current_product] = (cpu_index, metadata)
+            CURRENT_CACHED_PRODUCT = current_product
             print(f"✅ 已加载 {len(metadata)} 个向量片段")
             return
         except Exception as e:
@@ -333,6 +349,8 @@ def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = F
         print("⚠️ 知识库为空，创建空索引")
         GLOBAL_INDEX = faiss.IndexFlatL2(expected_dim)
         GLOBAL_METADATA = []
+        PRODUCT_INDEX_CACHE[current_product] = (GLOBAL_INDEX, [])
+        CURRENT_CACHED_PRODUCT = current_product
         return
 
     total_chunks = 0
@@ -349,6 +367,8 @@ def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = F
     if not vectors:
         GLOBAL_INDEX = faiss.IndexFlatL2(expected_dim)
         GLOBAL_METADATA = []
+        PRODUCT_INDEX_CACHE[current_product] = (GLOBAL_INDEX, [])
+        CURRENT_CACHED_PRODUCT = current_product
         return
 
     vectors_np = np.array(vectors).astype('float32')
@@ -360,6 +380,8 @@ def build_or_load_index(text2vec_func, expected_dim: int, force_reload: bool = F
 
     GLOBAL_INDEX = cpu_index
     GLOBAL_METADATA = metadata
+    PRODUCT_INDEX_CACHE[current_product] = (cpu_index, metadata)
+    CURRENT_CACHED_PRODUCT = current_product
     print(f"✅ 向量库构建完成，共 {len(vectors)} 个向量 (维度：{vectors_np.shape[1]})")
 
 
@@ -375,13 +397,28 @@ def save_current_index():
 
 
 def check_and_switch_product_index(text2vec_func, expected_dim: int) -> bool:
-    """检查商品是否切换，如果切换则重新加载索引"""
-    global GLOBAL_INDEX, GLOBAL_METADATA
+    """检查商品是否切换，如果切换则重新加载索引（优先使用内存缓存）"""
+    global GLOBAL_INDEX, GLOBAL_METADATA, PRODUCT_INDEX_CACHE, CURRENT_CACHED_PRODUCT
     
     _, current_product = product_state.get_current_product()
     if not current_product:
         return False
     
+    # 如果是当前已缓存商品，无需切换
+    if current_product == CURRENT_CACHED_PRODUCT:
+        return True
+    
+    # 检查内存缓存
+    if current_product in PRODUCT_INDEX_CACHE:
+        cached_index, cached_metadata = PRODUCT_INDEX_CACHE[current_product]
+        if cached_index.d == expected_dim:
+            GLOBAL_INDEX = cached_index
+            GLOBAL_METADATA = cached_metadata
+            CURRENT_CACHED_PRODUCT = current_product
+            print(f"✅ 从缓存切换到商品索引: {current_product}")
+            return True
+    
+    # 缓存未命中，从磁盘加载
     index_path, metadata_path = get_product_index_paths(current_product)
     
     if os.path.exists(index_path) and os.path.exists(metadata_path):
@@ -391,7 +428,9 @@ def check_and_switch_product_index(text2vec_func, expected_dim: int) -> bool:
                 metadata = np.load(metadata_path, allow_pickle=True).tolist()
                 GLOBAL_INDEX = cpu_index
                 GLOBAL_METADATA = metadata
-                print(f"✅ 切换到商品索引: {current_product}")
+                PRODUCT_INDEX_CACHE[current_product] = (cpu_index, metadata)
+                CURRENT_CACHED_PRODUCT = current_product
+                print(f"✅ 从磁盘加载商品索引: {current_product}")
                 return True
         except Exception as e:
             print(f"⚠️ 加载商品索引失败: {e}")
@@ -399,6 +438,43 @@ def check_and_switch_product_index(text2vec_func, expected_dim: int) -> bool:
     print(f"🆕 为商品 {current_product} 构建新索引...")
     build_or_load_index(text2vec_func, expected_dim, force_reload=True)
     return True
+
+
+def preload_all_product_indexes(text2vec_func, expected_dim: int) -> int:
+    """预加载所有商品的向量索引到内存缓存
+    
+    返回: 成功加载的商品数量
+    """
+    global PRODUCT_INDEX_CACHE
+    
+    products = product_state.get_product_folders()
+    if not products:
+        print("⚠️ 未找到任何商品文件夹")
+        return 0
+    
+    print(f"🔄 开始预加载 {len(products)} 个商品的向量索引...")
+    loaded_count = 0
+    
+    for product_name in products:
+        if product_name in PRODUCT_INDEX_CACHE:
+            loaded_count += 1
+            continue
+        
+        index_path, metadata_path = get_product_index_paths(product_name)
+        
+        if os.path.exists(index_path) and os.path.exists(metadata_path):
+            try:
+                cpu_index = faiss.read_index(index_path)
+                if cpu_index.d == expected_dim:
+                    metadata = np.load(metadata_path, allow_pickle=True).tolist()
+                    PRODUCT_INDEX_CACHE[product_name] = (cpu_index, metadata)
+                    loaded_count += 1
+                    print(f"   ✅ 已缓存: {product_name} ({len(metadata)} 个向量)")
+            except Exception as e:
+                print(f"   ⚠️ 加载失败 {product_name}: {e}")
+    
+    print(f"🎉 预加载完成，共缓存 {loaded_count}/{len(products)} 个商品索引")
+    return loaded_count
 
 
 # ======================

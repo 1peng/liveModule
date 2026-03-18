@@ -98,16 +98,17 @@ def main():
             return
         
         print('[成功] webapi 服务已启动，继续启动其他服务...')
-        time.sleep(2)
-        
-        # 启动 live-tts
-        live_tts_process = start_live_tts(session_id)
-        processes.append(('live-tts', live_tts_process))
-        time.sleep(2)
-        
+        time.sleep(2)        
+
         # 启动 auto-interaction
         auto_interaction_process = start_auto_interaction()
         processes.append(('auto-interaction', auto_interaction_process))
+        time.sleep(2)        
+
+        # 启动 live-tts
+        live_tts_process = start_live_tts(session_id)
+        processes.append(('live-tts', live_tts_process))
+
         
         print('=' * 60)
         print('所有服务已启动')
