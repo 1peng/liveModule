@@ -8,6 +8,10 @@ import os
 import uvicorn
 import base64
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
 
 # 配置日志
 logging.basicConfig(
@@ -66,6 +70,11 @@ class Config:
         self.live_description = ""
         self.liveCookies = ""
         self.cookies_data = ""
+        self.email_smtp_server = "smtp.gmail.com"
+        self.email_smtp_port = 465
+        self.email_sender = "easonwang105@gmail.com"
+        self.email_password = "uiervgrvltihbbdo"
+        self.email_receiver = "228331207@qq.com"
     
     def save(self):
         """保存配置到文件"""
@@ -85,7 +94,12 @@ class Config:
             'liveId': self.liveId,
             'live_description': self.live_description,
             'liveCookies': self.liveCookies,
-            'cookies_data': self.cookies_data
+            'cookies_data': self.cookies_data,
+            'email_smtp_server': self.email_smtp_server,
+            'email_smtp_port': self.email_smtp_port,
+            'email_sender': self.email_sender,
+            'email_password': self.email_password,
+            'email_receiver': self.email_receiver
         }
         with open('global_vars.json', 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=2)
@@ -111,6 +125,11 @@ class Config:
             self.live_description = config_data.get('live_description', '')
             self.liveCookies = config_data.get('liveCookies', '')
             self.cookies_data = config_data.get('cookies_data', '')
+            self.email_smtp_server = config_data.get('email_smtp_server', '')
+            self.email_smtp_port = config_data.get('email_smtp_port', 465)
+            self.email_sender = config_data.get('email_sender', '')
+            self.email_password = config_data.get('email_password', '')
+            self.email_receiver = config_data.get('email_receiver', '')
             return True
         except Exception as e:
             print(f"load config exception: {str(e)}")
@@ -118,6 +137,33 @@ class Config:
 
 # 全局配置实例
 config = Config()
+
+def send_error_email(subject, error_message):
+    if not config.email_smtp_server or not config.email_sender or not config.email_password or not config.email_receiver:
+        logger.warning("Email configuration is incomplete, skipping email notification")
+        return False
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = config.email_sender
+        msg['To'] = config.email_receiver
+        msg['Subject'] = subject
+        
+        body = f"""
+错误时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+错误信息: {error_message}
+        """
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        with smtplib.SMTP_SSL(config.email_smtp_server, config.email_smtp_port) as server:
+            server.login(config.email_sender, config.email_password)
+            server.sendmail(config.email_sender, config.email_receiver, msg.as_string())
+        
+        logger.info(f"Error email sent successfully to {config.email_receiver}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send error email: {str(e)}")
+        return False
 
 # 线程锁
 app = FastAPI()
@@ -706,6 +752,7 @@ def post_live_msg(content):
             return True
         else:
             logger.error(f"post_live_msg error: {rejson['errMsg']}")
+            send_error_email("post_live_msg 错误提醒", f"post_live_msg error: {rejson['errMsg']}")
             return False
     except Exception as e:
         logger.error(f"post_live_msg exception: {str(e)}")

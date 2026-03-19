@@ -85,9 +85,14 @@ def get_send_msg():
     content = msg_contents[msg_index]
     msg_index = (msg_index + 1) % len(msg_contents)
     
-    num_spaces = random.randint(1, 10)
-    insert_position = random.randint(0, len(content))
-    content = content[:insert_position] + ' ' * num_spaces + content[insert_position:]
+    chars = list(content)
+    result = []
+    for i, char in enumerate(chars):
+        result.append(char)
+        if i < len(chars) - 1:
+            if random.random() < 0.2:
+                result.append(' ')
+    content = ''.join(result)
     
     print(f'[发言] {content}')
     return content
