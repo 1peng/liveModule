@@ -160,14 +160,14 @@ async def execute_cycle(session_id):
         for item in os.listdir(file_path):
             if not running:
                 break
-            if item == 'index.txt' or not item.endswith('.txt'):
+            if item == 'index.lsp' or not item.endswith('.lsp'):
                 continue
             
             model_path = os.path.join(file_path, item)
             if not os.path.isfile(model_path):
                 continue
 
-            model_name = item.replace('.txt', '')
+            model_name = item.replace('.lsp', '')
             with open(model_path, 'r', encoding='utf-8') as f:
                 model_content = f.read()
             
