@@ -85,11 +85,18 @@ def get_send_msg():
     content = msg_contents[msg_index]
     msg_index = (msg_index + 1) % len(msg_contents)
     
+    import string
+    punctuation_set = set(string.punctuation)
     chars = list(content)
     result = []
     for i, char in enumerate(chars):
         result.append(char)
         if i < len(chars) - 1:
+            next_char = chars[i + 1]
+            if char.isdigit() and next_char.isdigit():
+                continue
+            if char in punctuation_set or next_char in punctuation_set:
+                continue
             if random.random() < 0.2:
                 result.append(' ')
     content = ''.join(result)
